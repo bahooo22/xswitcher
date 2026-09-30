@@ -111,7 +111,7 @@ type TWindowClass struct {
 }
 
 type TActions struct {
-	SeqLength int    `default:8`
+	SeqLength int    `default:"8"`
 	WordChars string `default:"(^([0-9A-Z=-]|GRAVE|APOSTROPHE|SEMICOLON|[LR]_BRACE|COMMA|DOT|(BACK)?SLASH|KP[0-9]):0$)"`
 	WordHead string  `default:"(^([0-9A-Z]|GRAVE|APOSTROPHE|SEMICOLON|[LR]_BRACE|COMMA|DOT|(BACK)?SLASH|KP[0-9]):1$)"`
 	NewWord []string
@@ -256,7 +256,7 @@ var (
 
 	clipboardOk = false
 
-	SYSLOG *syslog.Writer
+	SYSLOG logWriter
 )
 
 func config() {
@@ -1043,7 +1043,7 @@ func Exec(A *TAction) {
 	var c exec.Command;
 	args, err := shellquote.Split(A.Exec)
 	if err != nil {
-		fmt.Printf("Exec error: %s", err.Error)
+		fmt.Printf("Exec error: %s", err.Error())
 		return
 	}
 
@@ -1085,12 +1085,12 @@ func Exec(A *TAction) {
 	// UID & GID
 	user_, err := user.Lookup(A.UID)
 	if err != nil {
-		fmt.Sprintf("Exec: user \"%s\" invalid: %v", A.UID, err)
+		fmt.Printf("Exec: user %q invalid: %v\n", A.UID, err)
 		return
 	}
 	u64, err := strconv.ParseUint(user_.Uid, 10, 32)
 	if err != nil {
-		fmt.Sprintf("Exec: non-integer uid! Is it linux?")
+		fmt.Printf("Exec: non-integer uid! Is it linux?\n")
 		return
 	}
 	c.UID = uint32(u64)
@@ -1099,13 +1099,14 @@ func Exec(A *TAction) {
 	if len(A.GID) > 0 {
 		group, err := user.LookupGroup(A.GID)
 		if err != nil {
-			fmt.Sprintf("Exec: group \"%s\" invalid: %v", A.GID, err)
+			fmt.Printf("Exec: group %q invalid: %v\n", A.GID, err)
+			return
 		}
 		gid = group.Gid
 	}
 	g64, err := strconv.ParseUint(gid, 10, 32)
 	if err != nil {
-		fmt.Sprintf("Exec: non-integer gid! Is it linux?")
+		fmt.Printf("Exec: non-integer gid! Is it linux?\n")
 		return
 	}
 	c.GID= uint32(g64)
@@ -1498,9 +1499,49 @@ func serve() {
 	}
 }
 
+// logWriter abstracts the *syslog.Writer calls used across main(): syslog.Writer is a
+// concrete struct, so a failing syslog.New() leaves SYSLOG nil and every later
+// SYSLOG.Warning(...) dereferences it. The zero value is a silent writer, so startup
+// survives hosts without /dev/log.
+type logWriter struct {
+	w      *syslog.Writer
+	stderr bool
+}
+
+func (l logWriter) out(prio string, f string, a ...interface{}) {
+	msg := prio + " " + f
+	if len(a) > 0 {
+		msg = fmt.Sprintf("%s %v", msg, a)
+	}
+	if l.w != nil {
+		l.w.Warning(msg) // One syslog level keeps the original breadcrumb semantics
+		return
+	}
+	if l.stderr {
+		fmt.Fprintf(os.Stderr, "xswitcher: %s\n", msg)
+	}
+}
+
+func (l logWriter) Debug(f string, a ...interface{})   { l.out("DEBUG", f, a...) }
+func (l logWriter) Info(f string, a ...interface{})    { l.out("INFO", f, a...) }
+func (l logWriter) Notice(f string, a ...interface{})  { l.out("NOTICE", f, a...) }
+func (l logWriter) Warning(f string, a ...interface{}) { l.out("WARNING", f, a...) }
+func (l logWriter) Err(f string, a ...interface{})     { l.out("ERR", f, a...) }
+
+func initSyslog() logWriter {
+	w, err := syslog.New(syslog.LOG_DEBUG|syslog.LOG_DAEMON, DAEMON_NAME)
+	if err == nil {
+		return logWriter{w: w}
+	}
+	if *DEBUG {
+		fmt.Fprintf(os.Stderr, "xswitcher: syslog unavailable (%v), markers go to STDERR\n", err)
+		return logWriter{stderr: true}
+	}
+	return logWriter{}
+}
+
 func main() {
-	SYSLOG, _ = syslog.New(syslog.LOG_DEBUG | syslog.LOG_DAEMON, "xswitcher") // M.b. NULL pointer, in case of some error
-	SYSLOG.Warning("1")
+	SYSLOG = initSyslog()
 	var err error
 	defer func() { // Report panic, if one occured
 		if *DEBUG { return } // StackTrace is only interesting along debug
@@ -1564,7 +1605,7 @@ func main() {
 					fmt.Printf("***WTF***: read(watcher.Errors) != ok\n")
 					continue
 				}
-				fmt.Printf("watcher error:", err)
+				fmt.Printf("watcher error: %v\n", err)
 			}
 		}
 	}()
