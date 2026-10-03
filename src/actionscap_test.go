@@ -13,7 +13,7 @@ import (
 func TestActionsCustomHintNeverNegative(t *testing.T) {
 	cases := []struct{ n, want int }{
 		{0, 0}, {1, 0}, {3, 0}, // fewer keys than presets: no negative cap
-		{4, 0}, // exactly the presets: nothing custom to reserve for
+		{4, 0},          // exactly the presets: nothing custom to reserve for
 		{5, 1}, {10, 6}, // custom keys beyond the four presets
 	}
 	for _, c := range cases {
