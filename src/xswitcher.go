@@ -69,6 +69,7 @@ import (
 	"strings"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 //	"unsafe"
@@ -1545,6 +1546,7 @@ func events(device *evdev.InputDevice) {
 		attachedMu.Lock()
 		delete(attached, path)
 		attachedMu.Unlock()
+		updateDevicesSnapshot()
 	}()
 	for {
 		event, err := device.ReadOne()
@@ -1617,6 +1619,7 @@ func connectEvents(connectPath string) {
 				attachedMu.Lock()
 				attached[dev.Path] = true
 				attachedMu.Unlock()
+				updateDevicesSnapshot()
 				go events(d)
 				skip = false
 				if *VERBOSE {
@@ -1677,12 +1680,62 @@ func Respawn(*TAction) { // Completelly respawn xswitcher.
 
 // --- IPC handlers for the GUI (see internal/ipc) -----------------------------
 
+// The live status exposed to the GUI is split into two snapshots:
+//
+//   - coreSnapshot (layout, word buffer, active window) mirrors globals that
+//     only the serve() goroutine mutates, so it is only ever written from that
+//     goroutine (and once at startup before serve() begins).
+//   - devicesSnapshot mirrors the `attached` map, which readers and the device
+//     watcher mutate under attachedMu. It is refreshed on every attach/detach
+//     so device changes are visible even while no key event wakes serve().
+type statusCore struct {
+	Lang   int
+	Word   string
+	Window string
+}
+
+var (
+	coreSnapshot    atomic.Value // statusCore
+	devicesSnapshot atomic.Value // []string
+)
+
+func updateDevicesSnapshot() {
+	devices := make([]string, 0, len(attached))
+	attachedMu.Lock()
+	for path := range attached {
+		devices = append(devices, path)
+	}
+	attachedMu.Unlock()
+	sort.Strings(devices)
+	devicesSnapshot.Store(devices)
+}
+
+func updateStatusSnapshot() {
+	coreSnapshot.Store(statusCore{
+		Lang:   LANG,
+		Word:   bufferToText(WORD),
+		Window: ActiveWindowClass,
+	})
+	updateDevicesSnapshot()
+}
+
+func currentStatus() (statusCore, []string) {
+	core, _ := coreSnapshot.Load().(statusCore)
+	devices, _ := devicesSnapshot.Load().([]string)
+	return core, devices
+}
+
 func ipcStatus() ipc.Response {
+	core, devices := currentStatus()
 	return ipc.Response{
-		Ok:     true,
-		PID:    os.Getpid(),
-		Uptime: time.Since(daemonStartTime).Truncate(time.Second).String(),
-		Config: CONFIG_PATH,
+		Ok:           true,
+		PID:          os.Getpid(),
+		Uptime:       time.Since(daemonStartTime).Truncate(time.Second).String(),
+		Config:       CONFIG_PATH,
+		Layout:       core.Lang,
+		WordBuffer:   core.Word,
+		ActiveWindow: core.Window,
+		Devices:      devices,
 	}
 }
 
@@ -1812,6 +1865,7 @@ func serve() {
 				KEYS[event.code](event)
 			}
 		}
+		updateStatusSnapshot()
 	}
 }
 
@@ -1886,6 +1940,10 @@ func main() {
 
 	SYSLOG.Warning("6")
 	connectEvents("") // Start keyloggers
+
+	// Seed the status snapshot so the first GUI query sees the attached devices
+	// even before the first key event runs the serve loop.
+	updateStatusSnapshot()
 
 	// Start IPC server for GUI communication (Phase 1 MVP).
 	go func() {
