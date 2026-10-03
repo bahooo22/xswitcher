@@ -57,7 +57,6 @@ import (
 	"xswitcher/exec"
 	cfg "xswitcher/internal/config"
 	"xswitcher/internal/ipc"
-	"xswitcher/scancodes"
 	flag "github.com/spf13/pflag"       // CLI keys like python's "argparse". More flexible, comparing with "gnuflag"
 	"fmt"
 	"io/ioutil"
@@ -97,6 +96,8 @@ type TAction = cfg.TAction
 type TWayland = cfg.TWayland
 type TSequence = cfg.TSequence
 type TSequences = cfg.TSequences
+type TAutoReplace = cfg.TAutoReplace
+type THotkey = cfg.THotkey
 
 // Scan-codes
 type t_key struct {
@@ -139,6 +140,8 @@ var (
 	Actions TActions
 	ActionSet map[string] TAction
 	Wayland TWayland
+	AutoReplace []TAutoReplace
+	Hotkeys []THotkey
 
 	LANG = 0
 
@@ -310,9 +313,13 @@ func config() {
 	Actions = parsed.Actions
 	ActionSet = parsed.ActionSet
 	Wayland = parsed.Wayland
+	AutoReplace = parsed.AutoReplace
+	Hotkeys = parsed.Hotkeys
 
 	checkActionCycles()
 	collectManagedLayouts()
+	buildAutoReplace()
+	buildHotkeys()
 }
 
 // doAction() expands "Action.xxx" references recursively and has no depth limit, so a
@@ -1443,6 +1450,7 @@ func doWindowActions() {
 		if *VERBOSE || *DEBUG {
 			fmt.Printf("NewWord: %s\n", TAIL.String()[1:])
 		}
+		tryAutoReplace()
 		newWord()
 		return
 	}
@@ -1481,6 +1489,7 @@ func checkAppend(event t_key, slice ...*t_keys) {
 		}
 	}
 	getXModifiers() // X can lag while setting NUMLOCK state (and m.b. CAPSLOCK too), so check it after each key event
+	checkHotkeys(event) // CTRL now reflects this very event; combos work even on an unmanaged layout
 
 	group, managed := checkLanguageId() // A group no action and the global [ActionKeys] Layouts list name:
 	if ! managed {
@@ -1736,6 +1745,8 @@ func ipcStatus() ipc.Response {
 		WordBuffer:   core.Word,
 		ActiveWindow: core.Window,
 		Devices:      devices,
+		Hotkeys:      len(Hotkeys),
+		AutoReplaces: len(AutoReplace),
 	}
 }
 
@@ -1802,25 +1813,7 @@ func clipboardText() (string, bool) { // The clipboard's text, or false if it is
 func typeClipboard(A *TAction) { // Try to type the text from clipboard to virtual keyboard.
 	b, ok := clipboardText()
 	if !ok { return }
-
-//	fmt.Println(scancodes.SequenceForString(b))
-//	return
-	clip := strings.Split(scancodes.SequenceForString(b), " ")
-	for _, cc := range clip {
-//		fmt.Printf("%v\n", cc)
-		c := strings.Split(cc, "+")
-		if len(c) > 1 {
-			sendKey(t_key{uint16(key_def["L_SHIFT"]), 1})
-			sendKey(t_key{uint16(key_def[c[1]]), 1})
-			sendKey(t_key{uint16(key_def[c[1]]), 0})
-			sendKey(t_key{uint16(key_def["L_SHIFT"]), 0})
-		} else {
-			if cc == "Enter" { cc = "ENTER" }
-			if cc == "Space" { cc = "SPACE" }
-			sendKey(t_key{uint16(key_def[cc]), 1})
-			sendKey(t_key{uint16(key_def[cc]), 0})
-		}
-	}
+	typeText(b)
 }
 
 func serve() {
