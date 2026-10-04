@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"xswitcher/internal/ipc"
+	"xswitcher/internal/l10n"
 )
 
 const (
@@ -55,10 +56,10 @@ func listenIPC() {
 		return
 	}
 	if err := ipcSrv.Start(); err != nil {
-		SYSLOG.Warning(fmt.Sprintf("IPC server failed: %v", err))
+		SYSLOG.Warning(l10n.X("daemon.ipc_start_failed_syslog", "IPC server failed: {{.Err}}", "Err", err.Error()))
 		return
 	}
-	SYSLOG.Warning(fmt.Sprintf("IPC server listening on %s", ipc.SocketPath()))
+	SYSLOG.Warning(l10n.X("daemon.ipc_listening_syslog", "IPC server listening on {{.Path}}", "Path", ipc.SocketPath()))
 }
 
 // socketOwnerPid asks the IPC socket who is answering, and reports false when nothing is.
@@ -139,11 +140,11 @@ func (w handoverWatch) run() error {
 	}
 
 	if died != "" {
-		return fmt.Errorf("the respawned child exited instead of coming up (%s)", died)
+		return fmt.Errorf("%s", l10n.X("daemon.handover_child_exited", "the respawned child exited instead of coming up ({{.Reason}})", "Reason", died))
 	}
 	if answered {
 		w.kill()
-		return fmt.Errorf("the respawned child never took over the keyboard within %v", w.window)
+		return fmt.Errorf("%s", l10n.X("daemon.handover_child_timeout", "the respawned child never took over the keyboard within {{.Window}}", "Window", w.window))
 	}
 	return nil
 }
