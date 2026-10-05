@@ -1,35 +1,26 @@
 # === stand/Dockerfile.gui ===
 # Docker-образ для стенда GUI xswitcher с noVNC.
-#
-# Архитектура:
-#   Stage 1 (builder): компилирует daemon + GUI бинарники, скачивает noVNC/websockify
-#   Stage 2 (app): тонкий образ с Xvfb + запускаемым демоном
 
 ARG NOVNC_VERSION=2.1.15
 
-# --- Stage 1: builder --- #
+# --- Stage 1: builder (сборка daemon+GUI) --- #
 FROM golang:1.23-alpine AS builder
 
 ENV GOFLAGS=-buildvcs=false
 
-RUN apk add --no-cache \
-    build-base \
-    git \
-    ca-certificates \
-    curl \
-    tar \
-    && update-ca-certificates
+RUN apk add --no-cache build-base git ca-certificates curl tar wget && \
+    update-ca-certificates
 
 WORKDIR /w
-COPY .gomodcache /root/go/pkg/mod
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY src/ cmd/gui/ internal/ embeddedConfig/ exec/ scancodes/ sounds/ stand/ xswitcher.conf ./
-RUN go build -o /w/bin/xswitcher-daemon ./src/ \
- && go build -o /w/bin/xswitcher-gui ./cmd/gui/
+# Копируем только необходимые пакеты из репозитория
+COPY src/ cmd/gui/ internal/ embeddedConfig/ exec/ scancodes/ sounds/ xswitcher.conf ./
+RUN go build -o /w/bin/xswitcher-daemon ./src/ && \
+    go build -o /w/bin/xswitcher-gui ./cmd/gui/
 
-# noVNC (клиент + сервер)
+# noVNC + websockify
 ARG NOVNC_VERSION=2.1.15
 COPY --from=golang:1.23-alpine /usr/local/bin/go /usr/local/bin/go
 RUN mkdir -p /opt/novnc && \
@@ -39,31 +30,21 @@ RUN mkdir -p /opt/novnc && \
 # --- Stage 2: app (тонкий образ) --- #
 FROM alpine:3.20 AS app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    XSWITCHER_HOTKEY="ctrl+alt+s" \
-    NOVNC_PORT="6080"
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
 RUN apk add --no-cache \
-    bash \
-    python3 \
-    xorg-xinit \
-    xterm \
-    libXScrnSaver \
-    libxkbcommon-dev \
-    libxkbfile-dev \
-    && update-ca-certificates
+    bash python3 xorg-xinit xterm libXScrnSaver libxkbcommon-dev libxkbfile-dev && \
+    update-ca-certificates
 
-# noVNC и websockify
+# noVNC + websockify
 COPY --from=builder /opt/novnc /opt/novnc
 
 # Демон и GUI-бинарники из builder'а
 COPY --from=builder /w/bin/xswitcher-daemon /w/bin/xswitcher-daemon
 COPY --from=builder /w/bin/xswitcher-gui /w/bin/xswitcher-gui
-COPY --from=builder /w/go.mod go.sum ./
 
 WORKDIR /w
 
-# noVNC запускается в фоне, перенаправляя Xvfb на 5900
-EXPOSE 6081/tcp 3001/udp 5900
-CMD ["bash", "/opt/novnc/noVNC/vnc.html", "--host=0.0.0.0", "--port=${NOVNC_PORT}", "--resize=yes", "--websockify-port=3001"]
+# noVNC + websockify запускаются в фоне
+EXPOSE 6081/tcp 5900/tcp 3001/udp
+CMD ["bash", "-c", "/opt/novnc/websockify -D --web=/opt/novnc/noVNC --vnc=:5900 & sleep 1 && noVNC --host=0.0.0.0 --port=6081"]
