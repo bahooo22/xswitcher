@@ -96,6 +96,13 @@ Socket permissions: создаётся от root с mode `0660`, group `input`. 
 12. **About dialog** (`cmd/gui/about.go`) — maintainer info, GitHub links
 13. **Integration test** — verify reload round-trip through socket
 
+Пункт 7 («Daemon entry» как thin wrapper) не состоялся: демон сохранил собственный
+`main()` в `src/xswitcher.go`, а IPC слушатель запускается из `listenIPC()` внутри
+него. Заглушка `cmd/daemon/main.go` удалена, её три локализованных строки были
+единственными носителями ключей `daemon.ipc_start_failed`, `daemon.ipc_listening`
+и `daemon.ipc_shutting_down`; реальный демон использует `_syslog`-варианты из
+`src/handover.go`.
+
 ## Config Sections для Editor UI
 
 | Section | Widget Type | Notes |
