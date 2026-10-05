@@ -1,0 +1,38 @@
+# === stand/docker-compose.gui.yml ===
+# GUI стенд xswitcher с noVNC для тестирования физического ввода через xdotool.
+#
+# Запуск:
+#   cd stand && docker compose -f docker-compose.gui.yml up --build --detach
+#
+# Доступ: http://host.docker.internal:6081/noVNC/
+
+services:
+  # noVNC — веб-интерфейс для доступа к GUI стенда.
+  # Порт 6081 на хосте → порт 5900 внутри контейнера (Xvfb).
+  novnc:
+    image: novnc/novnc:2.1.15
+    ports:
+      - "6081:6080"
+    environment:
+      - DESKTOP_HOST=host.docker.internal:5900
+    depends_on:
+      - xswitcher-stand
+
+  # xswitcher-stand — контейнер со стендом, GUI демоном и noVNC-сервером.
+  xswitcher-stand:
+    build: ./Dockerfile.gui
+    ports:
+      - "6081:5900"
+      - "3001:3001/udp"
+    volumes:
+      # Гостевая папка с исходниками.
+      - ../:/w:ro
+      # Кэш модулей Go на хосте, чтобы не качать каждый раз.
+      - ../.gomodcache:/root/go/pkg/mod:cached
+    environment:
+      - LC_ALL=C
+      - XSWITCHER_LANG=en
+      - DUMPLOG=1
+    privileged: true
+    stdin_open: true
+    tty: true

@@ -1,0 +1,52 @@
+# === stand/Dockerfile.gui ===
+# Docker-образ для стенда GUI xswitcher с noVNC.
+# Используется в run-gui-docker.sh
+
+FROM golang:1.23-alpine AS builder
+
+ENV GOFLAGS=-buildvcs=false
+
+RUN apk add --no-cache \
+    build-base \
+    git \
+    ca-certificates \
+    && update-ca-certificates
+
+WORKDIR /w
+COPY .gomodcache /root/go/pkg/mod
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY src/ cmd/gui/ internal/ embeddedConfig/ exec/ scancodes/ sounds/ stand/ xswitcher.conf ./
+RUN go build -o /w/bin/xswitcher-gui ./cmd/gui/
+
+# --- noVNC (для GUI доступа через браузер) ------------------------------- #
+ARG NOVNC_VERSION=2.1.15
+COPY --from=golang:1.23-alpine /usr/local/bin/go /usr/local/bin/go
+RUN mkdir -p /opt/novnc && \
+    curl -sL "https://github.com/novnc/noVNC/archive/${NOVNC_VERSION}.tar.gz" | tar xz -C /opt/novnc --strip-components=1 && \
+    curl -sL "https://github.com/novnc/websockify/archive/master.tar.gz" | tar xz -C /opt/novnc
+
+# --- Финальный образ: тонкий с noVNC и демоном -------------------------- #
+FROM alpine:3.20 AS app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apk add --no-cache \
+    bash \
+    python3 \
+    libxkbcommon-dev \
+    && update-ca-certificates
+
+# noVNC и websockify
+COPY --from=builder /opt/novnc /opt/novnc
+
+WORKDIR /w
+COPY --from=builder /w/bin/xswitcher-gui /w/bin/xswitcher-gui
+COPY --from=builder /w/go.mod go.sum ./
+COPY --from=builder /w/stand/run-gui.sh ./stand/run-gui.sh
+
+EXPOSE 5900 6081/tcp 3001/udp
+
+CMD ["bash", "/w/stand/run-gui.sh"]

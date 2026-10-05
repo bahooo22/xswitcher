@@ -1,0 +1,19 @@
+# === stand/runtime-gui.yml ===
+# Конфигурация стенда GUI для тестов xswitcher.
+# Генерируется из runtime-шаблона, но пока статичный.
+
+# --- Гостевая папка с исходниками проекта (только чтение) --- #
+guest-path: "E:/eXample/Documents/Source/Github/Fork/xswitcher"
+
+# --- noVNC на порту 6081 --- #
+novnc-port: 6081
+novnc-hostname: "host.docker.internal"
+
+# --- Xvfb --- #
+xvfb-display: 99
+xvfb-width: 1280
+xvfb-height: 720
+
+# --- Тестовые данные --- #
+test-python-package: pytest
+test-xdotool-package: xdotool
