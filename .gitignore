@@ -1,3 +1,54 @@
+# build & dist output for the管理部门
+build/
+dist/
+*.exe
+*.dll
+
+# local deps (dev-go)
+go.mod
+go.sum
 .gomodcache/
+
+# IDE / editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+.DS_Store
+
+# temporary files
+tmp/
+.tmp/
 __pycache__/
 *.pyc
+
+# test coverage
+coverage/
+.nyc_output/
+coverage.xml
+coverage.html
+
+# Docker / container artifacts
+artifacts/
+gui-screenshot.png
+docker-build-*/
+
+# build-src is for local development only — not part of upstream release
+stand/build-src/
+
+# GUI app sources (local dev)
+stand/gui/
+
+# test fixtures and results
+stand/tests/*.pyc
+stand/tests/results/
+
+# Windows temp files
+tmp/*
+*.log
+
+# IDE / editors
+.idea/
+.vscode/settings.json
