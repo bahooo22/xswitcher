@@ -1,28 +1,47 @@
 # === stand/Dockerfile.gui ===
 # Docker-образ для стенда GUI xswitcher с noVNC.
+#
+# Архитектура:
+#   — Stage 1 (builder): компилирует daemon+GUI, скачивает noVNC+websockify
+#   — Stage 2 (app): тонкий образ с Xvfb + websockify + noVNC-клиентом
+#
+# Использование:
+#   cd stand && docker compose -f docker-compose.gui.yml up --build
 
 ARG NOVNC_VERSION=2.1.15
 
-# --- Stage 1: builder (сборка daemon+GUI) --- #
+# --- Stage 1: builder (сборка daemon+GUI, скачивание noVNC) --- #
 FROM golang:1.23-alpine AS builder
 
-ENV GOFLAGS=-buildvcs=false
+ENV GOFLAGS=-buildvcs=false \
+    GOPROXY=https://proxy.golang.org,direct
 
 RUN apk add --no-cache build-base git ca-certificates curl tar wget && \
     update-ca-certificates
 
-WORKDIR /w
-COPY go.mod go.sum ./
-RUN go mod download
+WORKDIR .
 
-# Копируем только необходимые пакеты из репозитория
-COPY src/ cmd/gui/ internal/ embeddedConfig/ exec/ scancodes/ sounds/ xswitcher.conf ./
-RUN go build -o /w/bin/xswitcher-daemon ./src/ && \
-    go build -o /w/bin/xswitcher-gui ./cmd/gui/
+# Копируем go.mod и go.sum (лежат в корне build context = stand/).
+COPY ./go.mod ./go.mod
+COPY ./go.sum ./go.sum
 
-# noVNC + websockify
+# Размещаем исходный код подпапок /go/src/keybd_event, /go/src/cmd/gui, /go/src/internal/l10n.
+# go mod replace ищет замену относительно корня модуля (/go), поэтому пути должны быть абсолютными.
+COPY ./build-src/keybd_event ./src/keybd_event
+COPY ./build-src/cmd/gui ./src/cmd/gui
+COPY ./build-src/internal/l10n ./src/internal/l10n
+
+RUN go mod download && go mod tidy
+
+# Компиляция daemon и GUI-демона.
+RUN go build -o /w/bin/xswitcher-daemon ./src/keybd_event && \
+    echo "[OK] xswitcher-daemon скомпилирован в /w/bin/xswitcher-daemon"
+
+RUN go build -o /w/bin/xswitcher-gui ./src/cmd/gui && \
+    echo "[OK] xswitcher-gui скомпилирован в /w/bin/xswitcher-gui"
+
+# Скачивание noVNC и websockify.
 ARG NOVNC_VERSION=2.1.15
-COPY --from=golang:1.23-alpine /usr/local/bin/go /usr/local/bin/go
 RUN mkdir -p /opt/novnc && \
     curl -sL "https://github.com/novnc/noVNC/archive/${NOVNC_VERSION}.tar.gz" | tar xz -C /opt/novnc --strip-components=1 && \
     curl -sL "https://github.com/novnc/websockify/archive/master.tar.gz" | tar xz -C /opt/novnc
@@ -33,18 +52,55 @@ FROM alpine:3.20 AS app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
 RUN apk add --no-cache \
-    bash python3 xorg-xinit xterm libXScrnSaver libxkbcommon-dev libxkbfile-dev && \
-    update-ca-certificates
+    bash python3 xterm libxkbcommon-dev libxkbfile-dev \
+    xdotool xvfb py3-pip
 
-# noVNC + websockify
+RUN pip install --no-cache-dir --break-system-packages pytest
+
+# noVNC и websockify — нет HTTPS-сертификатов, CA не нужен.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt 2>/dev/null || true
+
+# noVNC + websockify из builder'а.
 COPY --from=builder /opt/novnc /opt/novnc
 
-# Демон и GUI-бинарники из builder'а
+# Демон и GUI-бинарники из builder'а.
 COPY --from=builder /w/bin/xswitcher-daemon /w/bin/xswitcher-daemon
 COPY --from=builder /w/bin/xswitcher-gui /w/bin/xswitcher-gui
 
+COPY ./tests/gui_xdotool_test.py /w/tests/gui_xdotool_test.py
+
 WORKDIR /w
 
-# noVNC + websockify запускаются в фоне
-EXPOSE 6081/tcp 5900/tcp 3001/udp
-CMD ["bash", "-c", "/opt/novnc/websockify -D --web=/opt/novnc/noVNC --vnc=:5900 & sleep 1 && noVNC --host=0.0.0.0 --port=6081"]
+# Создаём конфиг стенда — hotkey берётся из env, дефолт: ctrl+alt+s.
+ENV HOTKEY="${HOTKEY:-ctrl+alt+s}"
+RUN mkdir -p /conf && \
+    cat > /conf/xswitcher-stand.conf <<CONFEOF
+[Daemon]
+Respawn = -1
+Exec = /w/bin/xswitcher-gui
+
+[ScanDevices]
+Test = "/dev/input/event0"
+
+Keys.Hotkey   = ${HOTKEY}
+
+[Action.RetypeWord]
+Actions = [Action.Wipe, Action.Switch, Action.Restore]
+
+[Action.Wipe]
+Exec    = /bin/echo "BACKSPACE" >"$TSV"
+
+[Action.Switch]
+Layouts = [0]
+
+[Action.Restore]
+Exec    = /bin/echo "RETYPE" >"$TSV"
+CONFEOF
+
+# noVNC запускается в фоне, websockify проксирует к VNC :5900.
+EXPOSE 6081/tcp 3001/udp 5900/tcp
+
+ARG CONF_PATH="/conf/xswitcher-stand.conf"
+ENV GUI_CONF_PATH="${CONF_PATH}"
+ENV DISPLAY=":99"
+CMD ["bash", "-c", "Xvfb :99 -screen 0 1280x720x24 & sleep 1 && /opt/novnc/websockify -D --web=/opt/novnc/noVNC --vnc=:5900 & sleep 2 && /w/bin/xswitcher-gui -c \"\${GUI_CONF_PATH}\""]

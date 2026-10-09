@@ -3,33 +3,30 @@
 #
 # Архитектура:
 #   — Dockerfile.gui в двух этапах компилирует daemon+GUI и собирает тонкий образ
-#     с Xvfb + websockify + noVNC-сервером + демоном xswitcher-gui
+#     со Xvfb + websockify + noVNC-сервером + демоном xswitcher-gui
 #   — noVNC клиент доступен на порту 6081/tcp (websockify proxy'ит к VNC)
 #
 # Запуск:
 #   cd stand && docker compose -f docker-compose.gui.yml up --build
-#
-# Доступ в браузере: http://host.docker.internal:6081/noVNC/
 
 services:
-  # Стенд — всё в одном контейнере (builder образ, но без сборки на каждой сборке)
+  # Стенд — всё в одном контейнере. Образ собирается из Dockerfile.gui.
   xswitcher-stand:
-    image: xswitcher/gui-stand:latest
+    build:
+      context: .            # контекст сборки = корень stand/
+      dockerfile: Dockerfile.gui   # путь внутри контекста (stand/Dockerfile.gui)
     container_name: xswitcher-gui-stand
-    build: ./Dockerfile.gui
     ports:
       - "6081:6081/tcp"   # noVNC WebSocket (websockify → VNC :5900)
       - "5900:5900/tcp"   # прямой VNC доступ (для отладки)
     volumes:
-      # Гостевая папка с исходниками (только чтение).
-      - ../:/w:ro
-      # Кэш модулей Go на хосте.
-      - ../.gomodcache:/root/go/pkg/mod:cached
+      - ./xswitcher-stand.conf:/conf/xswitcher-stand.conf:ro
     environment:
       - LC_ALL=C
       - XSWITCHER_LANG=en
       - DUMPLOG=1
-      - XSWITCHER_HOTKEY="ctrl+alt+s"  # горячая клавиша для стенда
+      - HOTKEY=${XSWITCHER_HOTKEY:-ctrl+alt+s}  # hotkey для стенда (передается в образ)
+      - NOVNC_VERSION=2.1.15                     # версия noVNC в Dockerfile.gui
     privileged: true
     stdin_open: true
     tty: true
