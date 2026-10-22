@@ -1,7 +1,8 @@
 # === stand/Dockerfile.gui ===
 # The GUI stand: Xvfb + noVNC + the toolchain the stand builds and runs itself.
 #
-#   build context = the repository root, so the sources are mounted, never copied:
+#   build context = the repository root, narrowed by .dockerignore to the single file COPYed
+#   below; the sources themselves are mounted at /w, never copied:
 #       docker build -f stand/Dockerfile.gui -t xswitcher-gui-stand .
 #   or, with the compose file:
 #       cd stand && docker compose -f docker-compose.gui.yml up --build
@@ -12,50 +13,16 @@
 # The repository is bind-mounted at /w by docker-compose.gui.yml.
 FROM golang:1.24-trixie
 
-# The display server and the noVNC bridge, plus the observers the stand drives:
-#   x11-utils      -> xprop, xwininfo
-#   x11-xkb-utils  -> setxkbmap, xkbprint (the stand sets us,ru,de)
-#   xdotool        -> window focus/geometry (getdisplaygeometry is the liveness gate)
-#   imagemagick    -> import -window root (the G7 screenshot)
-#   python3-evdev  -> stand/source_key.py, the uinput hand
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb \
-        x11vnc \
-        novnc \
-        websockify \
-        x11-utils \
-        x11-xkb-utils \
-        xdotool \
-        imagemagick \
-        python3-evdev \
-        kbd \
-        xterm \
-        ca-certificates \
-# The C helpers and cmd/gui are built by the stand itself, so their headers ship with it.
-# This set is the package list measured with `dpkg -l` inside the working VNC slot on
-# 2026-10-15, not a guess: the X11/client libraries Fyne's go driver needs (cgo), plus
-# libxtst-dev for the XTEST fake key events stand/echo.c and stand/bridge.c emit, plus
-# xkb-data for the layouts themselves.
-    && apt-get install -y --no-install-recommends \
-        gcc \
-        pkg-config \
-        libxtst-dev \
-        libx11-dev \
-        libxext-dev \
-        libxmu-dev \
-        libxrender-dev \
-        libxfixes-dev \
-        libxi-dev \
-        libxrandr-dev \
-        libxinerama-dev \
-        libxcursor-dev \
-        libxxf86vm-dev \
-        libxft-dev \
-        libfontconfig-dev \
-        libxkbcommon-dev \
-        libgl1-mesa-dev \
-        xkb-data \
-    && rm -rf /var/lib/apt/lists/*
+# The package list is a file, not a copy of a list: stand/apt-deps.txt is read by this image and by
+# .github/workflows/ci.yml, so a missing build header is fixed in one place and cannot drift. The
+# set itself was measured with `dpkg -l` inside the working VNC slot on 2026-10-15. `tr -d '\r'`
+# is not decoration: a Windows checkout with core.autocrlf=true hands this file over with CRLF, and
+# xargs would then ask apt for "xvfb\r" and fail with a message that looks like a missing package.
+COPY stand/apt-deps.txt /tmp/apt-deps.txt
+
+RUN apt-get update \
+    && tr -d '\r' < /tmp/apt-deps.txt | grep -v '^#' | xargs -r apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* /tmp/apt-deps.txt
 
 WORKDIR /w
 
