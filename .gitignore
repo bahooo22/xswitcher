@@ -1,12 +1,11 @@
-# build & dist output for the管理部门
+# build & dist output
 build/
 dist/
 *.exe
 *.dll
 
-# local deps (dev-go)
-go.mod
-go.sum
+# go.mod/go.sum are tracked upstream, so they must not be ignored here;
+# only the local module cache is noise.
 .gomodcache/
 
 # IDE / editors
@@ -49,6 +48,8 @@ stand/tests/results/
 tmp/*
 *.log
 
-# IDE / editors
-.idea/
-.vscode/settings.json
+# locally built GUI binary (go build ./cmd/gui), not a source file
+/gui
+
+# local planning notes, Cyrillic filenames — kept out of the fork's history
+/План*.md
