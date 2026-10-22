@@ -1,139 +1,93 @@
-# GUI стенд xswitcher — тестирование физического ввода через noVNC
+# GUI stand: checking a layout switch with real keystrokes
 
-Этот стенд позволяет запустить графический демон xswitcher внутри Docker-контейнера и проверять переключение раскладки через физическое нажатие клавиш (через noVNC + websockify).
+`stand/gui-stand.sh` answers one question that no unit test can answer: when a key is actually
+pressed, does xswitcher switch the layout of the live server and retype the word, and does the
+result reach a real X client?
 
-## Что это такое
-
-Стенд поднимает GUI-демон xswitcher в виртуальном X-сервере (Xvfb) и предоставляет доступ к нему через браузер через noVNC. Это позволяет:
-
-- **Визуально** проверять работу переключения раскладки в графическом интерфейсе
-- **Физически** нажимать клавиши (через `xdotool` или через browser-use API) — события идут через VNC → X11, как при настоящем использовании
-- **Автоматически** запускать автотесты с Playwright/pytest
-
-## Архитектура
-
-```
-┌───────────────────────────────────────┐
-│  Docker host (Windows 11 + Docker)    │
-│  ├─ noVNC:6081 ←→ websockify         │
-│  └─ Xvfb :5900                        │
-└───────────────────────────────────────┘
-           ↓ WebSocket (TLS)
-┌───────────────────────────────────────┐
-│  noVNC client (в браузере)            │
-│  └─ X11 events → GUI xswitcher        │
-└───────────────────────────────────────┘
-```
-
-## Запуск стенда
-
-### 1. Убедитесь, что Docker Desktop запущен
-
-Убедитесь, что модули `uinput` и `evdev` загружены в ядре VM Docker:
+Run it with the wrapper:
 
 ```bash
-modprobe uinput
-modprobe evdev
-ls /dev/uinput   # должно показать устройство
+bash stand/run-gui-stand.sh          # container + checks, one command
 ```
 
-(См. `stand/setup-host.sh` для скрипта автоматической проверки.)
-
-### 2. Собрать и запустить стенд
+or, if the container is already up:
 
 ```bash
-cd stand
-docker compose -f docker-compose.gui.yml up --build
+docker exec -e GUISTAND_COMMIT=$(git rev-parse --short HEAD) \
+            -e GUISTAND_VERSION=$(git describe --always --tags --dirty) \
+    xswitcher-gui-stand bash /w/stand/gui-stand.sh
 ```
 
-Примерная длительность сборки: 5–8 минут (скачивание noVNC + сборка Go-приложения).
+The final line carries the number of checks behind it:
 
-### 3. Открыть GUI в браузере
-
-Введите в адресной строке:
-
-> http://host.docker.internal:6081/noVNC/
-
-(Если используете другую сеть — замените `host.docker.internal` на IP хоста.)
-
-## Горячая клавиша
-
-По умолчанию стенд использует **Ctrl+Alt+S** для переключения раскладки. Это значение задаётся в `docker-compose.gui.yml`:
-
-```yaml
-environment:
-  - XSWITCHER_HOTKEY="ctrl+alt+s"
+```
+checks run                                               20 / GUI-STAND: ALL GREEN
 ```
 
-## Использование GUI
+## Why the stand is built the way it is
 
-1. Откройте About-вкладку (или любую вкладку с полем ввода).
-2. Наберите текст — например, `hello`.
-3. Нажмите **Ctrl+Alt+S** — раскладка переключится на английскую, и текст превратится в `gheoll`.
-4. Снова нажмите **Ctrl+Alt+S** — вернётся обратно в «русский» режим.
+A browser-driven test cannot observe this program. Xvfb serves a machine with "no display
+hardware and no physical input devices" (`Xvfb(1)`), so:
 
-## Автотесты
+* keys typed in the noVNC window go XTEST -> Xvfb, and the daemon, which reads **evdev**, never
+  sees them;
+* the daemon's output goes to its own uinput keyboard, which Xvfb equally ignores, so the GUI
+  window receives nothing.
 
-### Установка зависимостей
+Measured both directions: three taps written straight into the source node produced **0** events
+in an X client (check G2), and the same daemon run with the bridge produced **10**.
 
-```bash
-pip install -r stand/requirements.txt
-playwright install firefox  # или chromium, webkit
+So the stand has three parts around the real binaries:
+
+| part | file | role |
+|---|---|---|
+| hand | `stand/source_key.py` | a uinput keyboard the daemon reads, i.e. the human |
+| bridge | `stand/bridge.c` | replays the daemon's own keyboard (`keybd interface`) into X through XTEST |
+| eye | `stand/echo.c` | prints the X keycode, its evdev equivalent, the keysym name and the live Xkb group |
+
+The bridge only shifts codes: `X keycode = evdev code + 8` (measured on eight codes, and
+documented as "kernel keycode + 8" by Peter Hutterer, <http://who-t.blogspot.com/2021/>). It
+never touches the layout, because the daemon owns that through `XkbLockGroup`, and the same code
+already decodes to `a` in group 1 and to `Cyrillic_ef` in group 2.
+
+`BypassX` must be `false` for this stand. With the shipped `true` the daemon replays `Meta+digit`
+instead of calling `XkbLockGroup`, and the layout of the live server does not move at all -- the
+stand would then be measuring a code path Xvfb ignores.
+
+## What the 20 checks assert
+
+| check | assertion |
+|---|---|
+| G1 x8 | every evdev code used by the bridge maps to `code + 8`, verified by the keysym name |
+| G2 | without the bridge an X client sees nothing of the source device |
+| G3 | the bridge attached to the daemon's own keyboard |
+| G4 x2 | the live server moved to group 1, and the log shows `XkbLockGroup(1) answered 1` |
+| G5 x3 | the word was wiped (5 BackSpace), came back as 5 Cyrillic keysyms, in the exact mapping `p->ze f->a y->en d->ve f->a` |
+| G6 | exactly 10 KeyPress reached the client: no loop, no duplicates |
+| G8 x2 | the daemon's IPC reports `word_buffer":"pfydf"` and `word_group":1` |
+| G7 x2 | the GUI maps a window on the stand's display and a screenshot was captured |
+
+The typed word is `pfydf`, which is `занва` under the Russian layout -- an arbitrary sequence of
+keys, deliberately not a real word, so that a mapping mistake cannot look like a typo.
+
+## What this stand does not check
+
+* It does not check what the user sees in the browser. noVNC is there to look at the window while
+  the stand runs (`http://localhost:6081/vnc.html`), not to feed input; input from the browser
+  cannot reach the daemon, for the reason above.
+* It does not check Wayland. `[Wayland] BypassX = true` is the upstream default and is switched
+  off here; the Wayland branch is covered by `stand/run.sh` on the emitted evdev stream.
+* It does not decode UTF-8 in the eye. The image ships `libX11-dev` without `X11/Xutf8.h`, so the
+  eye prints the keysym name (`Cyrillic_ef`) instead of the character.
+
+## Files
+
 ```
-
-### Запуск тестов
-
-```bash
-pytest test_xswitcher_with_physical_input.py -v --browser=firefox
+stand/Dockerfile.gui        the container: golang:1.24-trixie + Xvfb/x11vnc/noVNC/websockify
+stand/docker-compose.gui.yml  build context = repository root, sources mounted at /w
+stand/run-gui-stand.sh      host wrapper: modules, container, checks
+stand/gui-stand.sh          the checks themselves
+stand/echo.c stand/bridge.c stand/xgroup.c    eye, bridge, layout observer
+stand/source_key.py stand/mknod-input.sh      hand, device nodes
+stand/setup-host.sh         uinput/evdev in the Docker Desktop VM kernel
 ```
-
-Тесты проверяют:
-
-- Переключение раскладки через горячую клавишу
-- Корректное отображение текста после смены раскладки
-- Стабильность курсора (не «улетает» при нажатии hotkey)
-- Обратное переключение EN → RU
-
-## Как это работает
-
-1. **noVNC + websockify** — проксирует WebSocket-соединение от браузера к Xvfb на порту 5900.
-2. **Xvfb** — виртуальный X-сервер, который принимает и обрабатывает VNC-клиенты.
-3. **xswitcher-gui** — GUI-демон xswitcher (Fyne), запущенный внутри Xvfb.
-4. Когда вы нажимаете клавиши в браузере, события идут по стеку:
-
-   ```
-   браузер → noVNC (WebSocket) → websockify → VNC протокол → Xvfb → X11 events → xswitcher-gui
-   ```
-
-5. **xswitcher** обрабатывает события клавиатуры и реагирует на горячую клавишу — переключает раскладку через `setxkbmap` или внутреннюю логику, обновляет GUI.
-
-## Файлы стенда
-
-| Файл | Описание |
-|------|----------|
-| `Dockerfile.gui` | Docker-образ: builder stage + тонкий app со всем необходимым |
-| `docker-compose.gui.yml` | Конфигурация контейнера стенда |
-| `run-gui.sh` | (исторический) скрипт запуска — теперь не используется в docker compose |
-| `test_xswitcher_with_physical_input.py` | Автотесты на Playwright |
-| `requirements.txt` | Зависимости для тестов |
-
-## Трассировка событий
-
-Включите отладочный вывод демонов:
-
-```bash
-DUMPLOG=1 docker compose -f docker-compose.gui.yml up --build
-```
-
-Это пишет логи xswitcher в `/w/stand.log` внутри контейнера.
-
-## Известные ограничения
-
-- Тесты требуют наличия `playwright` и браузера (Firefox, Chromium или WebKit).
-- noVNC на порту 6081 использует HTTP (без TLS) — для продакшена используйте TLS-обертку.
-- Хранение состояния раскладки в стенде **не синхронизируется** с системным `setxkbmap` — это изолированная тестовая среда.
-
-## История изменений
-
-- `d359544` — первоначальный стенд (упрощённая версия)
-- `557ea9c` — переписан Dockerfile (two-stage build), docker-compose, test с Playwright

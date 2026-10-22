@@ -1,106 +1,80 @@
 # === stand/Dockerfile.gui ===
-# Docker-образ для стенда GUI xswitcher с noVNC.
+# The GUI stand: Xvfb + noVNC + the toolchain the stand builds and runs itself.
 #
-# Архитектура:
-#   — Stage 1 (builder): компилирует daemon+GUI, скачивает noVNC+websockify
-#   — Stage 2 (app): тонкий образ с Xvfb + websockify + noVNC-клиентом
+#   build context = the repository root, so the sources are mounted, never copied:
+#       docker build -f stand/Dockerfile.gui -t xswitcher-gui-stand .
+#   or, with the compose file:
+#       cd stand && docker compose -f docker-compose.gui.yml up --build
 #
-# Использование:
-#   cd stand && docker compose -f docker-compose.gui.yml up --build
+# One stage on purpose. stand/gui-stand.sh compiles the daemon, the GUI and the three C
+# helpers from the checkout it is pointed at, because the point of the stand is to look at a
+# specific commit: an image with the binaries baked in would silently test an older build.
+# The repository is bind-mounted at /w by docker-compose.gui.yml.
+FROM golang:1.24-trixie
 
-ARG NOVNC_VERSION=2.1.15
-
-# --- Stage 1: builder (сборка daemon+GUI, скачивание noVNC) --- #
-FROM golang:1.23-alpine AS builder
-
-ENV GOFLAGS=-buildvcs=false \
-    GOPROXY=https://proxy.golang.org,direct
-
-RUN apk add --no-cache build-base git ca-certificates curl tar wget && \
-    update-ca-certificates
-
-WORKDIR .
-
-# Копируем go.mod и go.sum (лежат в корне build context = stand/).
-COPY ./go.mod ./go.mod
-COPY ./go.sum ./go.sum
-
-# Размещаем исходный код подпапок /go/src/keybd_event, /go/src/cmd/gui, /go/src/internal/l10n.
-# go mod replace ищет замену относительно корня модуля (/go), поэтому пути должны быть абсолютными.
-COPY ./build-src/keybd_event ./src/keybd_event
-COPY ./build-src/cmd/gui ./src/cmd/gui
-COPY ./build-src/internal/l10n ./src/internal/l10n
-
-RUN go mod download && go mod tidy
-
-# Компиляция daemon и GUI-демона.
-RUN go build -o /w/bin/xswitcher-daemon ./src/keybd_event && \
-    echo "[OK] xswitcher-daemon скомпилирован в /w/bin/xswitcher-daemon"
-
-RUN go build -o /w/bin/xswitcher-gui ./src/cmd/gui && \
-    echo "[OK] xswitcher-gui скомпилирован в /w/bin/xswitcher-gui"
-
-# Скачивание noVNC и websockify.
-ARG NOVNC_VERSION=2.1.15
-RUN mkdir -p /opt/novnc && \
-    curl -sL "https://github.com/novnc/noVNC/archive/${NOVNC_VERSION}.tar.gz" | tar xz -C /opt/novnc --strip-components=1 && \
-    curl -sL "https://github.com/novnc/websockify/archive/master.tar.gz" | tar xz -C /opt/novnc
-
-# --- Stage 2: app (тонкий образ) --- #
-FROM alpine:3.20 AS app
-
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-
-RUN apk add --no-cache \
-    bash python3 xterm libxkbcommon-dev libxkbfile-dev \
-    xdotool xvfb py3-pip
-
-RUN pip install --no-cache-dir --break-system-packages pytest
-
-# noVNC и websockify — нет HTTPS-сертификатов, CA не нужен.
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt 2>/dev/null || true
-
-# noVNC + websockify из builder'а.
-COPY --from=builder /opt/novnc /opt/novnc
-
-# Демон и GUI-бинарники из builder'а.
-COPY --from=builder /w/bin/xswitcher-daemon /w/bin/xswitcher-daemon
-COPY --from=builder /w/bin/xswitcher-gui /w/bin/xswitcher-gui
-
-COPY ./tests/gui_xdotool_test.py /w/tests/gui_xdotool_test.py
+# The display server and the noVNC bridge, plus the observers the stand drives:
+#   x11-utils      -> xprop, xwininfo
+#   x11-xkb-utils  -> setxkbmap, xkbprint (the stand sets us,ru,de)
+#   xdotool        -> window focus/geometry (getdisplaygeometry is the liveness gate)
+#   imagemagick    -> import -window root (the G7 screenshot)
+#   python3-evdev  -> stand/source_key.py, the uinput hand
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        xvfb \
+        x11vnc \
+        novnc \
+        websockify \
+        x11-utils \
+        x11-xkb-utils \
+        xdotool \
+        imagemagick \
+        python3-evdev \
+        kbd \
+        xterm \
+        ca-certificates \
+# The C helpers and cmd/gui are built by the stand itself, so their headers ship with it.
+# This set is the package list measured with `dpkg -l` inside the working VNC slot on
+# 2026-10-15, not a guess: the X11/client libraries Fyne's go driver needs (cgo), plus
+# libxtst-dev for the XTEST fake key events stand/echo.c and stand/bridge.c emit, plus
+# xkb-data for the layouts themselves.
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        pkg-config \
+        libxtst-dev \
+        libx11-dev \
+        libxext-dev \
+        libxmu-dev \
+        libxrender-dev \
+        libxfixes-dev \
+        libxi-dev \
+        libxrandr-dev \
+        libxinerama-dev \
+        libxcursor-dev \
+        libxxf86vm-dev \
+        libxft-dev \
+        libfontconfig-dev \
+        libxkbcommon-dev \
+        libgl1-mesa-dev \
+        xkb-data \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /w
 
-# Создаём конфиг стенда — hotkey берётся из env, дефолт: ctrl+alt+s.
-ENV HOTKEY="${HOTKEY:-ctrl+alt+s}"
-RUN mkdir -p /conf && \
-    cat > /conf/xswitcher-stand.conf <<CONFEOF
-[Daemon]
-Respawn = -1
-Exec = /w/bin/xswitcher-gui
+# The display the stand uses; keep it private, uinput is shared by the whole kernel of the
+# Docker VM, so two stands on one display would read each other's keyboards.
+ENV DISPLAY=:96 \
+    GUISTAND_DISPLAY=96 \
+    XSWITCHER_SOCK=/tmp/guistand.sock \
+    GOFLAGS=-buildvcs=false
 
-[ScanDevices]
-Test = "/dev/input/event0"
+EXPOSE 6081
 
-Keys.Hotkey   = ${HOTKEY}
-
-[Action.RetypeWord]
-Actions = [Action.Wipe, Action.Switch, Action.Restore]
-
-[Action.Wipe]
-Exec    = /bin/echo "BACKSPACE" >"$TSV"
-
-[Action.Switch]
-Layouts = [0]
-
-[Action.Restore]
-Exec    = /bin/echo "RETYPE" >"$TSV"
-CONFEOF
-
-# noVNC запускается в фоне, websockify проксирует к VNC :5900.
-EXPOSE 6081/tcp 3001/udp 5900/tcp
-
-ARG CONF_PATH="/conf/xswitcher-stand.conf"
-ENV GUI_CONF_PATH="${CONF_PATH}"
-ENV DISPLAY=":99"
-CMD ["bash", "-c", "Xvfb :99 -screen 0 1280x720x24 & sleep 1 && /opt/novnc/websockify -D --web=/opt/novnc/noVNC --vnc=:5900 & sleep 2 && /w/bin/xswitcher-gui -c \"\${GUI_CONF_PATH}\""]
+# Xvfb + the VNC bridge stay up for the life of the container; the checks themselves are run
+# with:  docker exec xswitcher-gui-stand bash /w/stand/gui-stand.sh
+# The display number is taken from GUISTAND_DISPLAY, not from DISPLAY: stand/gui-stand.sh derives
+# its own DISPLAY from GUISTAND_DISPLAY, so a container started with -e GUISTAND_DISPLAY=97 has to
+# get its Xvfb and x11vnc on :97 too, otherwise the stand looks for a server nobody started.
+CMD ["bash", "-c", "X=:${GUISTAND_DISPLAY:-96}; export DISPLAY=$X; \
+     Xvfb $X -noreset -screen 0 1280x1024x24 >/tmp/xvfb.log 2>&1 & \
+     sleep 1 && x11vnc -display $X -forever -shared -nopw -rfbport 5900 -bg >/tmp/x11vnc.log 2>&1 && \
+     websockify --web=/usr/share/novnc 6081 localhost:5900 >/tmp/websockify.log 2>&1 & \
+     tail -f /dev/null"]
