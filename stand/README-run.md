@@ -48,7 +48,7 @@ docker compose -f docker-compose.gui.yml up --build --detach
 ```bash
 pip install pytest xdotool
 
-pytest test_xswitcher_with_physical_input.py -v
+pytest stand/tests/physical_input_test.py -v
 ```
 
 Тесты проверяют:
@@ -95,7 +95,7 @@ xdotool getmouselocation --shell
 | `stand/docker-compose.gui.yml` | Конфигурация compose (noVNC + xswitcher) |
 | `stand/runtime.sh` | Генерация runtime.yml из переменных окружения |
 | `stand/runtime-gui.yml` | Конфигурационный файл стенда |
-| `test_xswitcher_with_physical_input.py` | Автотесты физического ввода |
+| `stand/tests/physical_input_test.py` | Автотесты физического ввода |
 
 ## Удаление стенда
 

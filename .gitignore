@@ -51,5 +51,9 @@ tmp/*
 # locally built GUI binary (go build ./cmd/gui), not a source file
 /gui
 
+# Locally built daemon and GUI binaries. bin/xswitcher was tracked once (3 465 232 bytes), and the
+# stand writes its own /w/bin/xswitcher-gui at run time, so the directory is output, never a source.
+/bin/
+
 # local planning notes, Cyrillic filenames — kept out of the fork's history
 /План*.md

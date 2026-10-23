@@ -44,7 +44,7 @@ echo "GUI стенд запущен. Откройте в браузере:" >&2
 echo "  http://host.docker.internal:6081" >&2
 echo "" >&2
 echo "В окне вы увидите GUI xswitcher (About tab)." >&2
-echo "Теперь можно запускать тесты из test_xswitcher_with_physical_input.py." >&2
+echo "Теперь можно запускать тесты из stand/tests/physical_input_test.py." >&2
 echo "" >&2
 
 exit 0

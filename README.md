@@ -159,6 +159,15 @@ points it at the sources kept under "src/keybd_event", where my "keybd_linux_exp
 "embeddedConfig", "exec" and "scancodes" are imported through the module name "xswitcher", so they must not
 be moved under "src/" as the earlier version of this instruction told You to do.
 
+There is exactly one module in the repository: the "stand" helpers are part of it too, so the clipboard holder
+the rig needs builds from the root as well.
+
+    go build -o /tmp/cliphold ./stand/cliphold/
+
+A second "go.mod" under "stand/" silently hides that package from the root module ("main module (xswitcher)
+does not contain package xswitcher/stand/cliphold"), which is how the rig lost a check without going red.
+Build output is never a source: "/bin/" is ignored, the rig writes its own "/w/bin/xswitcher-gui" at run time.
+
 The resulting binary is not static: it links libX11 (and libxcb) dynamically, as any X desktop provides them.  
 To strip it, as I do for the "bin" folder, add the linker flags:
 
@@ -188,6 +197,18 @@ It needs docker (or podman) with "--privileged" and the "uinput" + "evdev" modul
 On Windows 11 with Docker Desktop those modules are built but not autoloaded in the "docker-desktop" VM, so  
 "stand/setup-host.sh" loads them; it has to be re-run after every WSL VM restart. No desktop session, no  
 full distro installation and no second machine are required. Set "DUMPLOG=1" to get the whole daemon log.
+
+The same rig has a GUI half, and it is the half that watches a real key press instead of a config file:
+
+    bash stand/run-gui-stand.sh
+
+It runs 20 checks (G1..G8) and refuses to go green if the count shrinks, builds the daemon and the Fyne GUI
+from the checkout it is pointed at, and reads the stamp back off the binary it produced:
+
+    xswitcher --version          # -> "xswitcher v1.1.0 (2d66d12)", one line, no root and no config needed
+
+That line is what a release asset is matched against, so an unstamped build stays visible as
+"xswitcher dev (unknown)" instead of pretending to be a release.
 
 What the container deliberately does not prove: the X embedding itself. Xvfb refuses a two-group keymap  
 ("setxkbmap -layout us,ru" reports success but leaves a single group), so "XkbLockGroup" cannot be observed  

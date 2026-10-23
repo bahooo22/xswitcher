@@ -20,7 +20,7 @@ xswitcher реально переключает раскладку и меняе
     pip install pytest playwright
 
 Запуск:
-    pytest test_xswitcher_with_physical_input.py -v --browser=firefox
+    pytest stand/tests/physical_input_test.py -v --browser=firefox
 """
 
 import os

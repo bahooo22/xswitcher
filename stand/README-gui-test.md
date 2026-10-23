@@ -30,8 +30,8 @@
 Тестовый сценарий:
   1. Открываем http://host.docker.internal:6081/noVNC/
   2. Видим GUI xswitcher (About tab).
-  3. Запускаем тест из test_xswitcher_with_physical_input.py:
-       pytest test_xswitcher_with_physical_input.py -v
+  3. Запускаем тест из stand/tests/physical_input_test.py:
+       pytest stand/tests/physical_input_test.py -v
 ```
 
 ## Установка на хосте (Windows)
@@ -53,7 +53,7 @@
 
 pip install pytest xdotool
 
-pytest test_xswitcher_with_physical_input.py -v
+pytest stand/tests/physical_input_test.py -v
 ```
 
 ## Как отладить вручную через noVNC
@@ -72,7 +72,7 @@ pytest test_xswitcher_with_physical_input.py -v
 xdotool getmouselocation --shell
 ```
 
-Я использовал координаты `x=237`, `y=437` (измерено на скриншоте `gui-screenshot.png`). Если окно смещается — скорректируйте значения в `test_xswitcher_with_physical_input.py`.
+Я использовал координаты `x=237`, `y=437` (измерено на скриншоте `gui-screenshot.png`). Если окно смещается — скорректируйте значения в `stand/tests/physical_input_test.py`.
 
 ## Развёртывание стенда (команда)
 
@@ -87,7 +87,7 @@ docker compose -f docker-compose.gui.yml up --build --detach
 
 | Файл | Описание |
 |------|----------|
-| `test_xswitcher_with_physical_input.py` | Автотесты физического ввода через xdotool |
+| `stand/tests/physical_input_test.py` | Автотесты физического ввода через xdotool |
 | `stand/run-gui-docker.sh` | Запуск стенда GUI из Docker Desktop |
 | `stand/docker-compose.gui.yml` | Конфигурация стенда (noVNC + xswitcher) |
 | `stand/Dockerfile.gui` | Docker-образ стенда с noVNC и GUI демоном |
