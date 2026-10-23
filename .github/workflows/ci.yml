@@ -34,6 +34,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Not one of the five gates, but the cheapest way to learn that a workflow file cannot start.
+      # A `run: |` block may not contain a line at column zero, and a nested `python3 - <<PY` heredoc
+      # puts its body there: PyYAML rejects such a file with "while scanning a simple key" and Actions
+      # simply refuses to run the workflow. This was written after stand.yml was drafted with exactly
+      # that heredoc -- only the live parse caught it, so the parse became a step.
+      - name: workflow files parse as YAML
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3-yaml
+          python3 -c "import yaml,glob; files=glob.glob('.github/workflows/*.yml')+['.goreleaser.yaml']; [yaml.safe_load(open(f)) for f in files]; print('YAML parsed ok over', len(files), 'files')"
+
       # The same file stand/Dockerfile.gui installs from, so a missing build header cannot be green
       # in one of the two environments only.
       - name: System dependencies
