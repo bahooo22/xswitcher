@@ -261,6 +261,27 @@ different binding (GNOME's default is Super+Space, not Super+1/Super+2), the wip
 while the layout never moves. Checks W1 and W2 are what keeps this honest: W1 counts `XkbLockGroup` in the
 log and expects zero, W2 matches the replayed sequence against the configured `Layout1`.
 
+## How to release.
+A release is a tag: pushing `v1.1.0` runs `.github/workflows/release.yml`, which installs the build
+dependencies from `stand/apt-deps.txt` plus the derived arm64 cross set, verifies the stamp against the tag,
+and hands the tree to goreleaser (`.goreleaser.yaml`). The result is one `tar.gz` per architecture, a `.deb`
+and an `.rpm` per architecture, and `checksums.txt`, published as assets of that tag.
+
+Nothing is trusted from the build log: the asset answers for itself.
+
+    xswitcher --version            # "xswitcher v1.1.0 (a1b2c3d)" -- tag and commit, one line
+
+The gates that have to be green before a tag exists live in `.github/workflows/ci.yml`: `gofmt`,
+`go build`, `go vet`, `go test -count=1`, the stamp comparison and `govulncheck`. `.github/workflows/stand.yml`
+is a separate, manually dispatched question -- whether a hosted runner gives the rig `--privileged` and a
+usable `/dev/uinput`; until it is answered it stays off the push path so it cannot redden a branch.
+
+## Reporting a vulnerability.
+See `SECURITY.md`. In short: xswitcher is a keylogger by design, so "it records keystrokes" is not a
+vulnerability; what is in scope is a privilege regression in the packaging (no setuid, `0755 root:root` --
+both measured inside the built `.deb`), a path from typed text to code execution for someone who cannot edit
+the config, an escape across the socket, and a reachable dependency finding that `govulncheck` misses.
+
 ## Packaging
 Upstream asked for somebody to maintain distro packages; this fork does it for Linux: `.github/workflows/release.yml`
 runs goreleaser on a `v*` tag and publishes a portable `tar.gz`, a `.deb` and an `.rpm` for amd64 and arm64,
