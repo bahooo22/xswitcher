@@ -33,6 +33,11 @@ jobs:
           # goreleaser reads the tag history to build the changelog; a shallow clone loses it and the
           # release comes out with an empty body.
           fetch-depth: 0
+          # The tag itself is fetched by ref, and `fetch-tags` defaults to false -- `fetch-depth: 0` does
+          # not imply it. Measured in a clone made without tags: `git tag -l` is empty and
+          # `git describe --tags --abbrev=0` answers "fatal: No names found, cannot describe anything.",
+          # which is exactly how the first release run of v1.1.0 lost its version string.
+          fetch-tags: true
 
       - name: System dependencies
         # One package list for both environments: stand/apt-deps.txt is what the stand image installs,
@@ -51,17 +56,33 @@ jobs:
           apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu "libc6-dev:arm64" $CROSS
 
       - name: Verify the stamp this release will carry
-        # The same assertion ci.yml makes on every push, repeated against the tag: the binary says out
-        # loud which tag and commit it was built from, so a published asset cannot quietly be from a
-        # different commit than the release claims.
+        # The same assertion ci.yml makes on every push, repeated against the tag, and built from the same
+        # variable names on purpose. `git describe --tags` was the first version of this line and it made
+        # the step depend on whether the runner happened to fetch tags: with an empty description the
+        # binary carried an empty version, and the loose case pattern still matched "xswitcher v...". Here
+        # the tag name comes from the event, and the comparison is exact, so a version that never reached
+        # the binary cannot pass as a stamp that did.
         run: |
-          go build -ldflags "-s -w -X xswitcher/internal/about.Version=$(git describe --tags --abbrev=0) -X xswitcher/internal/about.Commit=$(git rev-parse --short HEAD)" -o /tmp/xd ./src/
+          COMMIT="${GITHUB_SHA::7}"
+          VERSION="${GITHUB_REF_NAME}"
+          # A tag push has to carry a tag in the stamp. Without this the comparison below would still pass
+          # for an empty VERSION, because both sides are built from the same variable -- a gate that cannot
+          # fail is not a gate. workflow_dispatch is the dry run and has no tag, so it is exempt.
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            case "$VERSION" in
+              v*) ;;
+              *) echo "a tag push must carry a v* ref, got [$VERSION]"; exit 1;;
+            esac
+          fi
+          go build -ldflags "-s -w -X xswitcher/internal/about.Version=$VERSION -X xswitcher/internal/about.Commit=$COMMIT" \
+            -o /tmp/xd ./src/
           got=$(/tmp/xd --version)
-          echo "stamp: $got"
-          case "$got" in
-            "xswitcher v"*" ("*) echo "the stamp carries the tag";;
-            *) echo "unexpected stamp: $got"; exit 1;;
-          esac
+          want="xswitcher $VERSION ($COMMIT)"
+          if [ "$got" != "$want" ]; then
+            echo "stamp mismatch: got [$got] want [$want]"
+            exit 1
+          fi
+          echo "stamp verified: $got"
 
       - name: goreleaser
         uses: goreleaser/goreleaser-action@v6

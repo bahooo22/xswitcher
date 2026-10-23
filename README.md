@@ -267,6 +267,13 @@ dependencies from `stand/apt-deps.txt` plus the derived arm64 cross set, verifie
 and hands the tree to goreleaser (`.goreleaser.yaml`). The result is one `tar.gz` per architecture, a `.deb`
 and an `.rpm` per architecture, and `checksums.txt`, published as assets of that tag.
 
+The stamp is read from the ref that triggered the run, not from `git describe`. `actions/checkout` does not
+fetch tags unless `fetch-tags: true` is asked for, and in a clone without tags
+`git describe --tags --abbrev=0` answers `fatal: No names found, cannot describe anything.` -- measured in a
+`--no-tags` clone of this repository, where `git tag -l` returns nothing. That is how the first release run of
+`v1.1.0` built a binary whose version string was empty, so the step now asserts two things separately: that a
+tag push carries a `v*` ref, and that the binary answers with exactly the stamp that was compiled in.
+
 Nothing is trusted from the build log: the asset answers for itself.
 
     xswitcher --version            # "xswitcher v1.1.0 (a1b2c3d)" -- tag and commit, one line
