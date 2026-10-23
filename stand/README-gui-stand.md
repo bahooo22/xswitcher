@@ -70,6 +70,23 @@ stand would then be measuring a code path Xvfb ignores.
 The typed word is `pfydf`, which is `занва` under the Russian layout -- an arbitrary sequence of
 keys, deliberately not a real word, so that a mapping mistake cannot look like a typo.
 
+## Why the stand uses Xvfb and not Xorg
+
+Spike of 23.10 (#101): the same container was given a real X server -- `xserver-xorg-core` +
+`xserver-xorg-video-dummy`, `Xorg :98 -config <dummy layout>`, 1280x1024, `vendor release number 12101016`.
+It starts, and it is unusable for these checks. Xorg attaches **zero** input devices here: no `udevd` runs in
+the container (`/run/udev` does not exist, `udevadm` is present but idle), so hotplug gives nothing even with
+`AutoAddDevices=true` and a live `/dev/input/event0 = stand-source-keyboard` already created through uinput:
+the log of that run carries zero lines matching "configuring input device".
+What is left is Xorg's default core keyboard, and on it `setxkbmap -layout us,ru,de` reports success while
+`setxkbmap -query` answers `layout: us` -- one group, no way to observe a switch.
+
+Xvfb is the opposite case, and that is why the rig keeps it: its core keyboard has XKB, and with `-noreset`
+a multi-group map survives between the one-shot observers, which is what makes G4 ("the live server moved to
+group 1" / "the daemon moved it through XkbLockGroup") assertable at all. The consequence for anyone reading
+this as a compatibility claim: the rig proves the protocol and the code paths, not the behaviour of a desktop
+X server, and a real Debian desktop has not been measured.
+
 ## What this stand does not check
 
 * It does not check what the user sees in the browser. noVNC is there to look at the window while
