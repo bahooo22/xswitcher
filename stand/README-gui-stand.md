@@ -86,7 +86,7 @@ keys, deliberately not a real word, so that a mapping mistake cannot look like a
 ## Files
 
 ```
-stand/Dockerfile.gui        the container: golang:1.24-trixie + Xvfb/x11vnc/noVNC/websockify
+stand/Dockerfile.gui        the container: golang:1.26-trixie + Xvfb/x11vnc/noVNC/websockify
 stand/docker-compose.gui.yml  build context = repository root, sources mounted at /w
 stand/run-gui-stand.sh      host wrapper: modules, container, checks
 stand/gui-stand.sh          the checks themselves

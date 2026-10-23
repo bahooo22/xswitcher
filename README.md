@@ -145,6 +145,11 @@ You must install (libX11-devel | libx11-dev) package for X bindings.
 * The package name may, of course, be different in Your distro.  
 X calls are made through cgo, so a C compiler ("gcc" or "clang") must be present too.  
 And, of course, you must have the working go environment.  
+The module pins the toolchain exactly: `go 1.26.0` plus `toolchain go1.26.10`. That is not a style
+choice, it is what `govulncheck` reports: on go1.24.13 the scan finds 29 vulnerabilities reachable from
+this code (18 of them in the standard library), on go1.26.0 it still finds 28, and on go1.26.10 zero.
+The stand images follow the same pin (`golang:1.26-trixie`), so a local run, the container and CI measure
+the same compiler.  
 Build from the repository root:
 
     go build -o xswitcher ./src/

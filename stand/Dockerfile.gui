@@ -11,7 +11,7 @@
 # helpers from the checkout it is pointed at, because the point of the stand is to look at a
 # specific commit: an image with the binaries baked in would silently test an older build.
 # The repository is bind-mounted at /w by docker-compose.gui.yml.
-FROM golang:1.24-trixie
+FROM golang:1.26-trixie
 
 # The package list is a file, not a copy of a list: stand/apt-deps.txt is read by this image and by
 # .github/workflows/ci.yml, so a missing build header is fixed in one place and cannot drift. The
