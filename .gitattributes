@@ -14,3 +14,7 @@ stand/*.c text eol=lf
 stand/Dockerfile.gui text eol=lf
 stand/apt-deps.txt text eol=lf
 .dockerignore text eol=lf
+# Same class as the stand scripts: dpkg and rpm run post-install.sh verbatim, and systemd reads the unit
+# file the same way. A Windows checkout with core.autocrlf=true would otherwise hand both over with CRLF.
+packaging/scripts/*.sh text eol=lf
+packaging/systemd/*/*.service text eol=lf

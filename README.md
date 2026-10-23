@@ -20,17 +20,19 @@ However, there's the workaround. Look under the "gnome3" subfolder for customize
 The helper header contains the brief instruction on how to deal with the https://github.com/lyokha/g3kb-switch.git
 
 ## Precompiled xswitcher for the beginners
-The statically compiled binary lays under "bin" folder.  
-The unexperienced users *(except of those who used gnome-based interfaces, e.g. ubuntu)* can just download this binary.  
-Then put it under e.g. "/usr/local/bin" path and make it executable:  
+The release assets of this fork carry the prebuilt binaries: one portable `tar.gz` per architecture, a `.deb`
+and an `.rpm` (amd64 and arm64). The packaged daemon is installed to `/usr/bin/xswitcher`, the GUI to
+`/usr/bin/xswitcher-gui`, the config to `/etc/xswitcher/xswitcher.conf` and a **user** systemd unit to
+`/usr/lib/systemd/user/xswitcher.service`:
 
-    sudo chown root:root /usr/local/bin/xswitcher
-    sudo chmod +xs /usr/local/bin/xswitcher
+    sudo dpkg -i xswitcher_1.1.0_amd64.deb      # or: sudo rpm -Uvh xswitcher-1.1.0-1.x86_64.rpm
+    sudo usermod -aG input "$USER"              # then re-login
+    systemctl --user enable --now xswitcher
 
-Note the sticky bit "+s" in this example. Being the low-level keylogger, xswitcher needs the access to "/dev/input/" devices.  
-Someone can make xswitcher slightly less dangerous by adding the privilege-separated code.  
-Or You yourself can try add your GUI user to "input" group (but I'm not sure it's enough to attach the virtual keyboard).  
-All improvements are welcome.
+Being the low-level keylogger, xswitcher needs access to "/dev/input/" devices. It gets them through the
+"input" group, not through ownership or privileges: the packaged binaries are `0755 root:root` with no setuid
+bit, and the post-install script prints the two commands above instead of editing `/etc/group` behind your
+back. Measured on the snapshot build: `dpkg-deb -c` shows `-rwxr-xr-x root/root` for both binaries.
 
 Also note that, being an honest keylogger by nature, xswitcher can be of course configured to do something strange.  
 E.g. you can configure it to email all the input to e.g. "fbi@usa.gov". Nobody bans.
@@ -174,14 +176,15 @@ does not contain package xswitcher/stand/cliphold"), which is how the rig lost a
 Build output is never a source: "/bin/" is ignored, the rig writes its own "/w/bin/xswitcher-gui" at run time.
 
 The resulting binary is not static: it links libX11 (and libxcb) dynamically, as any X desktop provides them.  
-To strip it, as I do for the "bin" folder, add the linker flags:
+To strip it, as I do for the release assets, add the linker flags:
 
-    go build -o xswitcher -ldflags "-s -w" ./src/ && chmod +xs xswitcher
+    go build -o xswitcher -ldflags "-s -w" ./src/ && chmod 755 xswitcher
 
 Put the config to "/etc/xswitcher/xswitcher.conf" (or just use embedded one)
 and install xswitcher executable under "/usr/local/bin/" or where You prefer.
 
-Make it executable, e.g. "chmod +xs /usr/local/bin/xswitcher", configure the autostart inside Your X GUI and enjoy.
+Make it executable ("chmod 755", no setuid bit: the daemon reads "/dev/input" as a member of the "input"
+group), configure the autostart inside Your X GUI and enjoy.
 
 ## How to verify.
 xswitcher is a keylogger on top of the kernel input layer, so an honest check needs "/dev/input" and "uinput",  
@@ -259,8 +262,13 @@ while the layout never moves. Checks W1 and W2 are what keeps this honest: W1 co
 log and expects zero, W2 matches the replayed sequence against the configured `Layout1`.
 
 ## Packaging
-I don't have enough time to maintain any distro package (rpm, dpkg, etc.).  
-But it seems to be a good deed. So, everybody who is ready to do this job is welcome.
+Upstream asked for somebody to maintain distro packages; this fork does it for Linux: `.github/workflows/release.yml`
+runs goreleaser on a `v*` tag and publishes a portable `tar.gz`, a `.deb` and an `.rpm` for amd64 and arm64,
+with `checksums.txt`. The recipe lives in `.goreleaser.yaml`, the systemd unit in
+`packaging/systemd/user/xswitcher.service` and the post-install notice in `packaging/scripts/post-install.sh`.
+The whole set was built and inspected locally with `goreleaser release --snapshot --clean`: 6 assets, both
+binaries inside each package at `0755 root:root`, `rpm -qp -R` reporting `glibc, libX11, libxkbcommon,
+mesa-libGL`, and the packaged daemon answering `xswitcher v1.0 (2fc2441)` to `--version`.
 
 ## About / Maintainer
 

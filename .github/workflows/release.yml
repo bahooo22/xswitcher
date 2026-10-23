@@ -1,0 +1,72 @@
+name: release
+
+# Publishes the release assets on a `v*` tag: portable tar.gz, .deb and .rpm for amd64 and arm64,
+# plus checksums.txt. The recipe is .goreleaser.yaml; this file only prepares an environment where
+# that recipe can run.
+#
+# The job runs inside golang:1.26-trixie on purpose. The daemon and the GUI are cgo binaries, and the
+# arm64 ones need `:arm64` development packages, which Ubuntu's default archive does not carry: the
+# multiarch set was installed and measured in Debian trixie (this is the same base the stand image
+# uses), not on the runner's own apt state.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: build everything and skip the publish step
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    container:
+      image: golang:1.26-trixie
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # goreleaser reads the tag history to build the changelog; a shallow clone loses it and the
+          # release comes out with an empty body.
+          fetch-depth: 0
+
+      - name: System dependencies
+        # One package list for both environments: stand/apt-deps.txt is what the stand image installs,
+        # and the cross set is derived from it -- every -dev entry mirrored to :arm64, plus the cross
+        # compiler and the arm64 libc headers (measured: without libc6-dev:arm64 the cgo build dies on
+        # "bits/wordsize.h: No such file or directory").
+        run: |
+          apt-get update
+          grep -v '^#' stand/apt-deps.txt | grep -v '^[[:space:]]*$' \
+            | xargs -r apt-get install -y --no-install-recommends
+          dpkg --add-architecture arm64
+          apt-get update
+          CROSS=$(grep -v '^#' stand/apt-deps.txt | grep -v '^[[:space:]]*$' | grep -- '-dev$' | sed 's/$/:arm64/' | tr '\n' ' ')
+          echo "cross set: gcc-aarch64-linux-gnu libc6-dev:arm64 $CROSS"
+          # shellcheck disable=SC2086
+          apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu "libc6-dev:arm64" $CROSS
+
+      - name: Verify the stamp this release will carry
+        # The same assertion ci.yml makes on every push, repeated against the tag: the binary says out
+        # loud which tag and commit it was built from, so a published asset cannot quietly be from a
+        # different commit than the release claims.
+        run: |
+          go build -ldflags "-s -w -X xswitcher/internal/about.Version=$(git describe --tags --abbrev=0) -X xswitcher/internal/about.Commit=$(git rev-parse --short HEAD)" -o /tmp/xd ./src/
+          got=$(/tmp/xd --version)
+          echo "stamp: $got"
+          case "$got" in
+            "xswitcher v"*" ("*) echo "the stamp carries the tag";;
+            *) echo "unexpected stamp: $got"; exit 1;;
+          esac
+
+      - name: goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v2.19.0
+          args: release --clean ${{ github.event.inputs.dry_run == 'true' && '--skip=publish' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
