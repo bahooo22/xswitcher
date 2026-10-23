@@ -75,8 +75,11 @@ keys, deliberately not a real word, so that a mapping mistake cannot look like a
 * It does not check what the user sees in the browser. noVNC is there to look at the window while
   the stand runs (`http://localhost:6081/vnc.html`), not to feed input; input from the browser
   cannot reach the daemon, for the reason above.
-* It does not check Wayland. `[Wayland] BypassX = true` is the upstream default and is switched
-  off here; the Wayland branch is covered by `stand/run.sh` on the emitted evdev stream.
+* It does not check Wayland. `[Wayland] BypassX = true` is the upstream default and is switched off here:
+  on this branch the daemon replays `Meta+digit`, so Xvfb would never move and the eye would measure
+  nothing. The bypass branch is measured where it can be seen -- on the emitted EV_KEY stream, as checks
+  W1/W2 of `stand/run.sh`: W1 expects zero `XkbLockGroup` calls, W2 expects the configured `Layout1`
+  (`125:1 3:1 3:0 125:0`), recorded 23.10 over a 24-event stream.
 * It does not decode UTF-8 in the eye. The image ships `libX11-dev` without `X11/Xutf8.h`, so the
   eye prints the keysym name (`Cyrillic_ef`) instead of the character.
 

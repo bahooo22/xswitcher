@@ -210,11 +210,13 @@ from the checkout it is pointed at, and reads the stamp back off the binary it p
 That line is what a release asset is matched against, so an unstamped build stays visible as
 "xswitcher dev (unknown)" instead of pretending to be a release.
 
-What the container deliberately does not prove: the X embedding itself. Xvfb refuses a two-group keymap  
-("setxkbmap -layout us,ru" reports success but leaves a single group), so "XkbLockGroup" cannot be observed  
-there; the shipped default config works around it anyway ("[Wayland] BypassX"), and the stand measures the  
-emitted key stream instead. Layout switching through the X API can only be verified in a real X session  
-with two layouts configured.
+What a container does and does not prove. Xvfb serves a multi-group keymap only when started with
+"-noreset": every observer here (setxkbmap, xgroup, the eye) is a one-shot client, and without that flag
+the loaded map is restored the moment the last client leaves -- measured as "groups 1" without the flag and
+"groups 2" with it. With the flag the rig really moves the live server: check G4 of `stand/gui-stand.sh`
+asserts both that the server answers "locked 1" and that the daemon's log carries
+"XkbLockGroup(1) answered 1". What no container here proves is a compositor: the Wayland bypass is measured
+on the emitted EV_KEY stream (checks W1/W2 of `stand/run.sh`), never inside a real Wayland session.
 
 ## KDE@Wayland: shit happens
 Wayland cancels all the X groundwork for multi-language systems.
@@ -235,6 +237,21 @@ Then, in "xswitcher.conf":
 
 * It takes about 50 ms to complete switching the keyboard layout in my KDE, so I set 50 as the default value.
 * Up to 4 language shortcuts "Layout0"�"Layout3".
+
+What the crutch actually emits is measured, not assumed. With the shipped `BypassX = true` and a word typed
+on the wrong layout, the daemon writes exactly this shape to its own uinput keyboard (recorded 23.10 with
+`stand/sniff.py`, asserted as W1/W2 in `stand/run.sh`):
+
+    125:1  3:1  3:0  125:0        # L_META down, KEY_2 down/up, L_META up -- [Wayland] Layout1
+    14:1 14:0  x5                 # one BackSpace per collected character
+    25:1 25:0 33:1 33:0 ...       # the word replayed with the SAME evdev codes
+
+Two consequences are worth knowing before filing a bug. The daemon does not re-encode the letters into
+Cyrillic: it hands the desktop environment the shortcut and retypes the physical keys, so the translation is
+done by whatever that shortcut selects. And nothing here observes the result -- if the real desktop uses a
+different binding (GNOME's default is Super+Space, not Super+1/Super+2), the wipe and the replay still happen
+while the layout never moves. Checks W1 and W2 are what keeps this honest: W1 counts `XkbLockGroup` in the
+log and expects zero, W2 matches the replayed sequence against the configured `Layout1`.
 
 ## Packaging
 I don't have enough time to maintain any distro package (rpm, dpkg, etc.).  
