@@ -218,6 +218,13 @@ from the checkout it is pointed at, and reads the stamp back off the binary it p
 That line is what a release asset is matched against, so an unstamped build stays visible as
 "xswitcher dev (unknown)" instead of pretending to be a release.
 
+The GUI stand used to be a second, older layer as well: `stand/run-gui.sh`, `stand/run-gui-docker.sh`,
+`stand/runtime.sh`, `stand/runtime-gui.yml` and two READMEs describing an Alpine image, `Xvfb :99` and a
+`Win+Space` shortcut. None of it is what runs now -- the image is `golang:1.26-trixie`, the display is a
+private slot chosen by the script, and the shortcut comes from the config -- so the layer was dropped
+(6 files, 452 lines) instead of being kept as documentation that contradicts the rig. Nothing outside those
+six files referenced them.
+
 What a container does and does not prove. Xvfb serves a multi-group keymap only when started with
 "-noreset": every observer here (setxkbmap, xgroup, the eye) is a one-shot client, and without that flag
 the loaded map is restored the moment the last client leaves -- measured as "groups 1" without the flag and
