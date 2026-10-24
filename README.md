@@ -201,6 +201,11 @@ Run it from the repository root:
 
     bash stand/run-stand.sh
 
+Both stand images install their system packages from one file, `stand/apt-deps.txt`, which is also what
+`.github/workflows/ci.yml` reads -- so a missing build header is missing in exactly one place. `stand/Dockerfile`
+used to carry its own shorter list, and that is what broke check B3 (`go test ./...`) of the rig: Fyne pulls
+glfw, `glfw3native.h` includes `<X11/extensions/Xrandr.h>`, and that header only comes from `libxrandr-dev`.
+
 It needs docker (or podman) with "--privileged" and the "uinput" + "evdev" modules loaded on the host kernel.  
 On Windows 11 with Docker Desktop those modules are built but not autoloaded in the "docker-desktop" VM, so  
 "stand/setup-host.sh" loads them; it has to be re-run after every WSL VM restart. No desktop session, no  
