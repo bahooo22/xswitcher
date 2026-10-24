@@ -29,8 +29,13 @@ GUISTAND_COMMIT="$COMMIT" GUISTAND_VERSION="$VERSION" \
     docker compose -f "$HERE/docker-compose.gui.yml" up -d --build
 
 echo "--- checks ---"
+# The path is written as //w on purpose. Git Bash rewrites an argument that starts with /w into the
+# Windows form W:/w before handing it to the native docker.exe, so the container then tries to run
+# "bash W:/w/stand/gui-stand.sh" and dies with "No such file or directory" (measured: exit 127, last
+# line "bash: W:/stand/gui-stand.sh: No such file or directory"). A leading double slash is left alone
+# by the conversion and means the same directory inside Linux.
 docker exec -e GUISTAND_COMMIT="$COMMIT" -e GUISTAND_VERSION="$VERSION" \
-    "$CONTAINER" bash /w/stand/gui-stand.sh
+    "$CONTAINER" bash //w/stand/gui-stand.sh
 
 echo ""
 echo "The GUI of the stand is on http://localhost:6081/vnc.html (noVNC, passwordless)."

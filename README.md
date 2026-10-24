@@ -215,6 +215,11 @@ The same rig has a GUI half, and it is the half that watches a real key press in
 
     bash stand/run-gui-stand.sh
 
+Both wrappers are meant to be run from Git Bash on Windows as written, with no extra environment
+variables: `run-stand.sh` sets `MSYS_NO_PATHCONV` for its own `docker run`, and `run-gui-stand.sh` asks for
+the in-container path as `//w/...`, because Git Bash would otherwise hand the native docker binary a
+`W:/w/...` argument that does not exist inside the container.
+
 It runs 20 checks (G1..G8) and refuses to go green if the count shrinks, builds the daemon and the Fyne GUI
 from the checkout it is pointed at, and reads the stamp back off the binary it produced:
 
