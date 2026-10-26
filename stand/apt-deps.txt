@@ -1,7 +1,11 @@
 # === stand/apt-deps.txt ===
-# One source of truth for the system packages the stand and CI need. Read by
-# stand/Dockerfile.gui (COPY + xargs) and by .github/workflows/ci.yml, so the two cannot drift:
-# when a build header is missing, it is missing in exactly one place and one edit fixes both.
+# One source of truth for the system packages the stand and CI need. Every reader is listed, because
+# the point of the file is that a missing header is missing in exactly one place:
+#   stand/Dockerfile      -- the rig image, through COPY + xargs (since 0b97060; it used to carry its own
+#                            shorter list, and that is what made check B3 red)
+#   stand/Dockerfile.gui  -- the GUI stand image, same COPY + xargs shape
+#   .github/workflows/ci.yml, .github/workflows/stand.yml, .github/workflows/release.yml
+#                          -- the `System dependencies` step of each, through grep | xargs
 # One package per line; lines starting with "#" and empty lines are ignored by the readers.
 
 # The display server and the browser bridge the GUI stand runs on.
