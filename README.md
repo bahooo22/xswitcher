@@ -303,6 +303,13 @@ prints `xswitcher main (53f155a)`. So `defaults.run.shell: bash` is written in a
 the two container jobs have the trust step. `-buildvcs=false` is not the fix: the stamp and the changelog are
 supposed to come from git.
 
+The manual `workflow_dispatch` run is the dry run, and it cannot publish: `main` carries no tag, and
+goreleaser answers `git doesn't contain any tags - either add a tag or use --snapshot` with exit code 1. The
+dispatched run therefore adds `--snapshot`, measured to exit 0 on a tagless tree and to stamp the binary
+`xswitcher v0.0.0 (<sha>)` -- a version nobody can mistake for a release -- while a `v*` tag push keeps the
+plain `release --clean`. That tag path was measured end to end in the same image: `tar.gz`, `.deb` and `.rpm`
+for amd64 and arm64 (six packages) plus `checksums.txt`, exit code 0 in 3m16s.
+
 Nothing is trusted from the build log: the asset answers for itself.
 
     xswitcher --version            # "xswitcher v1.1.0 (a1b2c3d)" -- tag and commit, one line

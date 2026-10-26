@@ -107,9 +107,17 @@ jobs:
           echo "stamp verified: $got"
 
       - name: goreleaser
+        # Two flags, two different reasons. `--skip=publish` is the dry run the `dry_run` input promises.
+        # `--snapshot` is not a preference: measured on a tree with a remote and no tag (exactly the state
+        # of `main`), `goreleaser release --clean --skip=publish` exits 1 with
+        # "git doesn't contain any tags - either add a tag or use --snapshot" -- so every manual run died
+        # before building anything. With `--snapshot` the same tree exits 0 and stamps the binary
+        # `xswitcher v0.0.0 (<sha>)`, which cannot be mistaken for a release, and the real path (a `v*` tag
+        # push) is left untouched: there the second expression is empty, and that path was measured end to
+        # end on a tag -- deb, rpm and tar.gz for amd64 and arm64 plus checksums.txt, 3m16s, exit 0.
         uses: goreleaser/goreleaser-action@v6
         with:
           version: v2.19.0
-          args: release --clean ${{ github.event.inputs.dry_run == 'true' && '--skip=publish' || '' }}
+          args: release --clean ${{ github.event.inputs.dry_run == 'true' && '--skip=publish' || '' }} ${{ github.event_name != 'push' && '--snapshot' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
