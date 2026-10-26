@@ -26,8 +26,20 @@ jobs:
     container:
       image: golang:1.26-trixie
       options: --privileged
+    # Stated, not inherited: this job has the same shape as the release job, and the release job was
+    # measured running its steps under `sh -e {0}` (see the note in release.yml). The GUI rig below
+    # expands `${GITHUB_SHA::7}`, which is a bash-only substitution.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      - name: Make git trust the workspace
+        # Root inside the container, the checkout owned by the runner's uid -- git refuses, and the rig
+        # builds the daemon with `go build`, which then dies on "error obtaining VCS status: exit status
+        # 128". Measured in release.yml's note; the rig has the same two actors.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: System dependencies
         run: |

@@ -22,6 +22,14 @@ permissions:
 jobs:
   gates:
     runs-on: ubuntu-24.04
+    # Named rather than inherited. This gate step expands `${GITHUB_SHA::7}`, which is a bash-only
+    # substitution, and the release job proved on 2026-10-26 what happens when the shell of a `run:` step
+    # is left to the default: the step ran under `sh -e {0}` and died with "Bad substitution" (exit 2).
+    # This job is not in a container, so bash was already the default here -- the line is what keeps the
+    # two files stating the same thing instead of one of them gambling on a default.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 

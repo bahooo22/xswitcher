@@ -291,6 +291,18 @@ fetch tags unless `fetch-tags: true` is asked for, and in a clone without tags
 `v1.1.0` built a binary whose version string was empty, so the step now asserts two things separately: that a
 tag push carries a `v*` ref, and that the binary answers with exactly the stamp that was compiled in.
 
+A job that runs in a container has to name its shell and has to make git trust the checkout; neither is
+inherited. Both were measured, not guessed. The dispatched run of 2026-10-26 executed the stamp step as
+`sh -e {0}` and it stopped on `COMMIT="${GITHUB_SHA::7}"` with `Bad substitution` and exit code 2 -- a
+bash-only substitution, and the image does ship `/usr/bin/bash`, so the default is not something to rely on;
+the same script body under `bash --noprofile --norc -eo pipefail` exits 0. Then git: the steps run as root
+while `actions/checkout` leaves the tree owned by the runner's uid, and `go build` answers
+`error obtaining VCS status: exit status 128` (measured exit 1). One
+`git config --global --add safe.directory "$GITHUB_WORKSPACE"` later the same build exits 0 and the binary
+prints `xswitcher main (53f155a)`. So `defaults.run.shell: bash` is written in all three workflow files, and
+the two container jobs have the trust step. `-buildvcs=false` is not the fix: the stamp and the changelog are
+supposed to come from git.
+
 Nothing is trusted from the build log: the asset answers for itself.
 
     xswitcher --version            # "xswitcher v1.1.0 (a1b2c3d)" -- tag and commit, one line
