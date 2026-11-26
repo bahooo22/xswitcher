@@ -1,0 +1,100 @@
+name: ci-verify
+
+# Throwaway gate harness for the stacked PR branches, which predate the CI layer.
+# `.github/workflows/ci.yml` does not exist in these trees, and a workflow is only picked up from the
+# ref it runs on, so the same gates are mirrored here and this file is committed only to
+# feature/pr-1-verify .. feature/pr-3-verify. It never appears in a PR.
+
+on:
+  push:
+    branches: ["feature/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: system dependencies
+        # Copied verbatim from stand/apt-deps.txt (30 non-comment entries) on purpose: that file is
+        # added inside this same slice, so `grep | xargs` would not exist to read on pr/1..pr/3.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb x11vnc novnc websockify x11-utils x11-xkb-utils xdotool imagemagick \
+            python3-evdev kbd xterm ca-certificates gcc pkg-config \
+            libxtst-dev libx11-dev libxext-dev libxmu-dev libxrender-dev libxfixes-dev \
+            libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev libxxf86vm-dev libxft-dev \
+            libfontconfig-dev libxkbcommon-dev libgl1-mesa-dev xkb-data
+
+      - name: gofmt
+        # continue-on-error is scoped to this harness and to these three trees: tree-wide formatting
+        # is a commit inside pr/3, so pr/1 and pr/2 cannot be clean here. ci.yml keeps the same gate
+        # blocking for every ref it runs on.
+        continue-on-error: true
+        run: |
+          files=$(git ls-files '*.go')
+          bad=$(gofmt -l $files)
+          if [ -n "$bad" ]; then
+            echo "not formatted (expected on pr/1 and pr/2, formatted by pr/3):"; echo "$bad"
+          else
+            echo "gofmt clean over $(echo "$files" | wc -l) files"
+          fi
+
+      - name: go build
+        run: go build -o /tmp/xswitcher ./src/
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -count=1 ./...
+
+      - name: build stamp matches this commit
+        run: |
+          if [ ! -d internal/about ]; then
+            echo "skipped: internal/about does not exist in this tree (it is added in the next slice)"
+            exit 0
+          fi
+          if ! grep -q -- '--version' src/xswitcher.go; then
+            echo "skipped: this tree has no --version flag, it is added in the release slice"
+            echo "measured on 2026-11-22: the step ran, the binary answered 'unknown flag: --version'"
+            exit 0
+          fi
+          COMMIT="${GITHUB_SHA::7}"
+          VERSION="${GITHUB_REF_NAME}"
+          go build -ldflags "-s -w -X xswitcher/internal/about.Version=$VERSION -X xswitcher/internal/about.Commit=$COMMIT" \
+            -o /tmp/xswitcher-stamped ./src/
+          got=$(/tmp/xswitcher-stamped --version)
+          want="xswitcher $VERSION ($COMMIT)"
+          if [ "$got" != "$want" ]; then
+            echo "stamp mismatch: got [$got] want [$want]"
+            exit 1
+          fi
+          echo "stamp verified: $got"
+        # The ref name here is feature/pr-N-verify, not a tag, so the expected string is built from
+        # the same variables the step prints; the assertion still measures the stamped build.
+
+      - name: govulncheck
+        # Reported, not gated, on these three trees: they carry the upstream `go` directive (1.22.4 at
+        # the base of slice 1) and a slice may not bump the toolchain of the slices before it. The
+        # blocking version of this gate is ci.yml, which only exists from pr/4 and which pins
+        # toolchain go1.26.11. Measured 2026-11-22 on pr/1: 4 reachable standard-library advisories
+        # under go1.22.4 -- GO-2026-4971 (net, fixed go1.25.10), GO-2026-4602 (os, fixed go1.25.8),
+        # GO-2025-3956 (os/exec, fixed go1.23.12), GO-2025-3750 (syscall, fixed go1.23.10).
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          echo "go directive: $(grep -E '^go ' go.mod || echo none) | toolchain: $(grep -E '^toolchain ' go.mod || echo none)"
+          "$(go env GOPATH)/bin/govulncheck" ./... || echo "this gate is informational on the slices before pr/4, see the step comment"
